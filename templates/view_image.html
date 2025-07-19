@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Image Viewer - {{ filename }}</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: black;
+      color: white;
+    }
+    .image-container {
+      width: 100vw;
+      height: 100vh;
+      position: relative;
+      overflow: hidden;
+    }
+    #mainImage, #overlayCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      transform-origin: top left;
+    }
+    #zoomControls {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      z-index: 1001;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .zoom-group {
+      display: flex;
+      gap: 6px;
+    }
+    .zoom-button {
+      font-size: 20px;
+      padding: 6px 12px;
+      background: white;
+      color: black;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .floating-toggles {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(1);
+      background: rgba(0, 0, 0, 0.4);
+      padding: 20px;
+      border-radius: 15px;
+      z-index: 1000;
+      transition: transform 0.3s;
+    }
+    .toggle {
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      color: white;
+      margin: 6px 0;
+    }
+    .toggle input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      margin-right: 10px;
+    }
+    #tooltip {
+      position: absolute;
+      background: white;
+      color: black;
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 14px;
+      display: none;
+      pointer-events: none;
+      z-index: 1000;
+    }
+  </style>
+</head>
+<body>
+  <div id="zoomControls">
+    <div class="zoom-group">
+      <button class="zoom-button" onclick="adjustZoom(-0.1)">− Image</button>
+      <button class="zoom-button" onclick="adjustZoom(0.1)">+ Image</button>
+    </div>
+    <div class="zoom-group">
+      <button class="zoom-button" onclick="adjustToggleZoom(-0.1)">− Panel</button>
+      <button class="zoom-button" onclick="adjustToggleZoom(0.1)">+ Panel</button>
+    </div>
+  </div>
+
+  <div class="floating-toggles" id="togglePanel">
+    <div class="toggle"><input type="checkbox" id="showCG" onchange="redraw()"><span>🔴 CG (Coconut → Green): <span id="countCG">0</span></span></div>
+    <div class="toggle"><input type="checkbox" id="showCN" onchange="redraw()"><span>🔵 CN (Coconut → Non-Green): <span id="countCN">0</span></span></div>
+    <div class="toggle"><input type="checkbox" id="showNG" onchange="redraw()"><span>🟡 NG (Non-Green → Green): <span id="countNG">0</span></span></div>
+    <div class="toggle"><input type="checkbox" id="showGN" onchange="redraw()"><span>🟣 GN (Green → Non-Green): <span id="countGN">0</span></span></div>
+    <div class="toggle"><input type="checkbox" id="showNC" onchange="redraw()"><span>🔘 NC (Non-Green → Coconut): <span id="countNC">0</span></span></div>
+    <div class="toggle"><input type="checkbox" id="showGC" onchange="redraw()"><span>🟠 GC (Green → Coconut): <span id="countGC">0</span></span></div>
+
+    <div class="toggle" style="margin-top: 15px;">
+      <input type="checkbox" id="showTrainingPoints" onchange="redraw()">
+      <label for="showTrainingPoints">Show All Training Points</label>
+    </div>
+    <div id="counts" style="font-size: 16px; margin-left: 26px;">
+      <span style="color:lime">🟢 Green-800:</span> <span id="countGreen">0</span><br>
+      <span style="color:skyblue">🔵 Non-Green-800:</span> <span id="countNonGreen">0</span><br>
+      <span style="color:orange">🟠 Coconut-800:</span> <span id="countCoconut">0</span>
+    </div>
+    <div class="toggle">
+      <label>Dot Size:
+        <input type="number" id="dotSizeInput" value="6" min="2" max="50" onchange="dotRadius = this.valueAsNumber; redraw();">
+      </label>
+    </div>
+  </div>
+
+  <div class="image-container">
+    <img id="mainImage" src="/static/images/{{ filename }}">
+    <canvas id="overlayCanvas"></canvas>
+  </div>
+  <div id="tooltip"></div>
+
+  <script>
+    const image = document.getElementById('mainImage');
+    const canvas = document.getElementById('overlayCanvas');
+    const ctx = canvas.getContext('2d');
+    const tooltip = document.getElementById('tooltip');
+
+    let zoom = 1;
+    let toggleZoom = 1;
+    let points = [];
+    let dotRadius = 6;
+
+    fetch(`/data/{{ filename }}`)
+      .then(res => res.json())
+      .then(data => {
+        points = data;
+        updateCounts();
+        redraw();
+      });
+
+    image.onload = () => {
+      canvas.width = image.width;
+      canvas.height = image.height;
+      redraw();
+    };
+
+    function adjustZoom(delta) {
+      zoom = Math.max(0.1, zoom + delta);
+      image.style.transform = `scale(${zoom})`;
+      canvas.style.transform = `scale(${zoom})`;
+    }
+
+    function adjustToggleZoom(delta) {
+      toggleZoom = Math.max(0.2, toggleZoom + delta);
+      document.getElementById('togglePanel').style.transform = `translate(-50%, -50%) scale(${toggleZoom})`;
+    }
+
+    function updateCounts() {
+      let green = 0, nongreen = 0, coconut = 0;
+      let CG=0, CN=0, NG=0, GN=0, NC=0, GC=0;
+      points.forEach(p => {
+        if (p.category === "GREEN_800") green++;
+        else if (p.category === "NON_GREEN_800") nongreen++;
+        else if (p.category === "COCONUT_800") coconut++;
+
+        if (p.category === "CG") CG++;
+        if (p.category === "CN") CN++;
+        if (p.category === "NG") NG++;
+        if (p.category === "GN") GN++;
+        if (p.category === "NC") NC++;
+        if (p.category === "GC") GC++;
+      });
+      document.getElementById('countGreen').innerText = green;
+      document.getElementById('countNonGreen').innerText = nongreen;
+      document.getElementById('countCoconut').innerText = coconut;
+
+      document.getElementById('countCG').innerText = CG;
+      document.getElementById('countCN').innerText = CN;
+      document.getElementById('countNG').innerText = NG;
+      document.getElementById('countGN').innerText = GN;
+      document.getElementById('countNC').innerText = NC;
+      document.getElementById('countGC').innerText = GC;
+    }
+
+    function redraw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const showAll = document.getElementById('showTrainingPoints').checked;
+
+      for (let p of points) {
+        if (p.category === "CG" && document.getElementById('showCG').checked) ctx.fillStyle = "red";
+        else if (p.category === "CN" && document.getElementById('showCN').checked) ctx.fillStyle = "blue";
+        else if (p.category === "NG" && document.getElementById('showNG').checked) ctx.fillStyle = "yellow";
+        else if (p.category === "GN" && document.getElementById('showGN').checked) ctx.fillStyle = "magenta";
+        else if (p.category === "NC" && document.getElementById('showNC').checked) ctx.fillStyle = "cyan";
+        else if (p.category === "GC" && document.getElementById('showGC').checked) ctx.fillStyle = "orange";
+        else if (p.category === "GREEN_800" && showAll) ctx.fillStyle = "lime";
+        else if (p.category === "NON_GREEN_800" && showAll) ctx.fillStyle = "skyblue";
+        else if (p.category === "COCONUT_800" && showAll) ctx.fillStyle = "orange";
+        else continue;
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, dotRadius, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+    }
+  </script>
+</body>
+</html>
+
+

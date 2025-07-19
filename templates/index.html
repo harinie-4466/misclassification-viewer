@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Image Misclassification Viewer</title>
+</head>
+<body>
+    <h2>Select an Image</h2>
+    <ul>
+        {% for img in images %}
+        <li>
+            <a href="/view/{{ img }}">
+                <img src="/static/images/{{ img }}" alt="{{ img }}" width="150">
+                <p>{{ img }}</p>
+            </a>
+        </li>
+        {% endfor %}
+    </ul>
+</body>
+</html>
